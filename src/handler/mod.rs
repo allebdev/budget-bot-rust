@@ -23,18 +23,18 @@ pub struct Output {
     pub text: String,
 }
 
-pub struct MessageHandler {
+pub struct RawMessageParser {
     categorizer: Categorizer,
-    event_handler: Box<dyn EventHandler>,
+    event_handler: GoogleDocsEventHandler,
 }
 
-impl MessageHandler {
-    pub fn new() -> MessageHandler {
+impl RawMessageParser {
+    pub fn new() -> RawMessageParser {
         let mut categorizer = Categorizer::new();
         load_categories(&mut categorizer);
-        MessageHandler {
+        RawMessageParser {
             categorizer,
-            event_handler: Box::new(GoogleDocsEventHandler::new()),
+            event_handler: GoogleDocsEventHandler::new(),
         }
     }
 
@@ -42,11 +42,11 @@ impl MessageHandler {
         debug!("{:?}", &input);
         let text = &input.text;
         let category = self.categorizer.classify(text)?;
-        let amount = MessageHandler::parse_amount(text)?;
+        let amount = RawMessageParser::parse_amount(text)?;
         let record = BudgetRecord {
             id: input.id,
             date: Local::today().naive_local(),
-            category: category.clone(),
+            category: category.name.to_owned(),
             amount,
             desc: input.text,
             user: input.user,
@@ -57,7 +57,7 @@ impl MessageHandler {
         } else {
             events.push(HandlerEvent::UpdateRecord(record))
         }
-        let reply = MessageHandler::build_reply_message(events.iter().next().as_ref().unwrap());
+        let reply = RawMessageParser::build_reply_message(events.iter().next().as_ref().unwrap());
         self.handle_events(events);
         let output = Output { text: reply };
         debug!("{:?}", &output);
@@ -68,11 +68,11 @@ impl MessageHandler {
         match event {
             HandlerEvent::AddRecord(record) => format!(
                 "Added new record #{}\nDate: {}\nCategory: {}\nAmount: {}",
-                record.id, record.date, record.category.name, record.amount,
+                record.id, record.date, record.category, record.amount,
             ),
             HandlerEvent::UpdateRecord(record) => format!(
                 "Updated existed record #{}\nDate: {}\nCategory: {}\nAmount: {}",
-                record.id, record.date, record.category.name, record.amount,
+                record.id, record.date, record.category, record.amount,
             ),
         }
     }
@@ -99,7 +99,7 @@ impl MessageHandler {
 #[cfg(test)]
 mod tests {
     use crate::handler::events::Amount;
-    use crate::handler::MessageHandler as MH;
+    use crate::handler::RawMessageParser as MH;
 
     #[test]
     fn parse_amount_as_first_word() {

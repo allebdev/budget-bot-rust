@@ -4,8 +4,6 @@ use std::fmt;
 use chrono::NaiveDate;
 use regex::Regex;
 
-use crate::handler::categorizer::Category;
-
 pub mod google_docs;
 
 pub(crate) type RecordId = i64;
@@ -39,7 +37,7 @@ impl TryFrom<&str> for Amount {
 pub struct BudgetRecord {
     pub id: RecordId,
     pub date: NaiveDate,
-    pub category: Category,
+    pub category: String,
     pub amount: Amount,
     pub desc: String,
     pub user: String,
