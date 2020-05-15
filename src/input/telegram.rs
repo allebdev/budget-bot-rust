@@ -40,12 +40,12 @@ impl TelegramInputHandler {
     async fn start_polling(self) -> Result<Infallible, errors::PollingSetup> {
         let mut bot = Bot::from_env("BOT_TOKEN").stateful_event_loop(self);
 
-        bot.text(move |ctx, this| async move {
+        bot.text(|ctx, this| async move {
             this.process_text(ctx, false).await;
         });
 
-        bot.edited_text(move |ctx, this| async move {
-            this.process_text(ctx, false).await;
+        bot.edited_text(|ctx, this| async move {
+            this.process_text(ctx, true).await;
         });
 
         bot.polling().start().await
@@ -69,7 +69,7 @@ impl TelegramInputHandler {
             id: ctx.message_id().0 as i64,
             user: username.to_owned(),
             text: ctx.text().value.clone(),
-            is_new: edited,
+            is_new: !edited,
         });
 
         if let Some(Output { text }) = output {
