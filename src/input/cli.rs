@@ -26,7 +26,7 @@ impl InputHandler for ConsoleInputHandler {
         "CLI"
     }
 
-    async fn start(&self) -> io::Result<()> {
+    async fn start(self) -> io::Result<()> {
         let mut counter = 0i64;
         loop {
             counter += counter;

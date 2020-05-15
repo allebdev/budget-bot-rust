@@ -15,7 +15,7 @@ mod telegram;
 #[async_trait]
 pub trait InputHandler {
     fn name(&self) -> &str;
-    async fn start(&self) -> io::Result<()>;
+    async fn start(self) -> io::Result<()>;
 }
 
 #[cfg(feature = "cli")]
