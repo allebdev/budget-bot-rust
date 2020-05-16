@@ -12,10 +12,10 @@ mod cli;
 #[cfg(feature = "telegram")]
 mod telegram;
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait InputHandler {
     fn name(&self) -> &str;
-    async fn start(&self) -> io::Result<()>;
+    async fn start(self) -> io::Result<()>;
 }
 
 #[cfg(feature = "cli")]

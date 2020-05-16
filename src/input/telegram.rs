@@ -19,48 +19,41 @@ pub struct TelegramInputHandler {
 }
 
 enum StartMode {
-    ReadOnce,
+    ReadOnly,
     Polling,
 }
 
-#[async_trait]
+#[async_trait(? Send)]
 impl InputHandler for TelegramInputHandler {
     fn name(&self) -> &str {
         "Telegram"
     }
 
-    async fn start(&self) -> io::Result<()> {
-        // let result = match self.mode {  // <-- this doesn't work
-        //     StartMode::ReadOnce => self.read_updates().await,
-        //     StartMode::Polling => self.poll_updates().await,
-        // };
-
-        // let result = self.poll_updates().await;   // <-- this doesn't work as well
-        let result = self.read_updates().await;
+    async fn start(self) -> io::Result<()> {
+        let result = match self.mode {
+            StartMode::ReadOnly => self.read_updates().await,
+            StartMode::Polling => self.poll_updates().await,
+        };
         match result {
             Ok(_) => Ok(()),
             Err(err) => Err(io::Error::new(io::ErrorKind::Other, err)),
-        };
-        Ok(())
+        }
     }
 }
 
 impl TelegramInputHandler {
     pub fn new(parser: RawMessageParser) -> Self {
-        let token = env::var("TELEGRAM_BOT_TOKEN").expect("TELEGRAM_BOT_TOKEN not set");
-        let polling_enabled = env::var("TELEGRAM_BOT_POLLING").is_ok();
+        let token = env::var("BOT_TOKEN").expect("BOT_TOKEN not set");
+        let mode = env::var("BOT_READONLY").map_or(StartMode::Polling, |_| StartMode::ReadOnly);
         TelegramInputHandler {
             parser,
             api: Api::new(token),
-            mode: if polling_enabled {
-                StartMode::Polling
-            } else {
-                StartMode::ReadOnce
-            },
+            mode,
         }
     }
+
     async fn read_updates(&self) -> Result<(), Error> {
-        // Fetch new updates once
+        debug!("Read updates only");
         let mut updates = GetUpdates::new();
         let request = updates.timeout(4);
         let result = self
@@ -70,8 +63,7 @@ impl TelegramInputHandler {
         if let Some(ref updates) = result {
             for update in updates {
                 if let Some(response) = self.process_update(&update) {
-                    warn!("READONLY RUN! WILL NOT SEND RESPONSE: {:?}", response)
-                    // api.send(request).await?;
+                    debug!("Unsent response: {:?}", response)
                 }
             }
         }
@@ -79,14 +71,13 @@ impl TelegramInputHandler {
     }
 
     async fn poll_updates(&self) -> Result<(), Error> {
-        // Fetch new updates via long poll method
+        debug!("Polling updates");
         let stream = self.api.stream();
         let mut stream = StreamExt::timeout(stream, Duration::from_secs(5));
         while let Some(Ok(update)) = stream.next().await {
             let update = &update?;
             if let Some(response) = self.process_update(update) {
-                warn!("READONLY RUN! WILL NOT SEND RESPONSE: {:?}", response)
-                // self.api.send(response).await?;
+                self.api.send(response).await?;
             }
         }
         Ok(())
