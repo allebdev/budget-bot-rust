@@ -1,10 +1,23 @@
-use std::convert::TryFrom;
 use std::fmt;
+use std::str::FromStr;
 
 use chrono::NaiveDate;
 use regex::Regex;
 
-pub mod google_docs;
+#[cfg(feature = "csv-storage")]
+use crate::handler::events::csv::CsvEventHandler;
+#[cfg(feature = "gss-storage")]
+use crate::handler::events::google_docs::GoogleDocsEventHandler;
+
+#[cfg(feature = "csv-storage")]
+mod csv;
+#[cfg(feature = "gss-storage")]
+mod google_docs;
+
+#[cfg(feature = "csv-storage")]
+pub type DefaultEventHandler = CsvEventHandler;
+#[cfg(feature = "gss-storage")]
+pub type DefaultEventHandler = GoogleDocsEventHandler;
 
 pub(crate) type RecordId = i64;
 
@@ -12,7 +25,7 @@ lazy_static! {
     static ref RE_AMOUNT: Regex = Regex::new(r"^-?\d+(?:[.,]\d{1,2})?$").unwrap();
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Amount(pub(crate) String);
 
 impl fmt::Display for Amount {
@@ -21,19 +34,19 @@ impl fmt::Display for Amount {
     }
 }
 
-impl TryFrom<&str> for Amount {
-    type Error = ();
+impl FromStr for Amount {
+    type Err = ();
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        if RE_AMOUNT.is_match(value) {
-            Ok(Amount(value.replace(',', ".")))
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if RE_AMOUNT.is_match(s) {
+            Ok(Amount(s.replace(',', ".")))
         } else {
             Err(())
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BudgetRecord {
     pub id: RecordId,
     pub date: NaiveDate,
@@ -50,7 +63,8 @@ pub enum HandlerEvent {
 }
 
 pub trait EventHandler {
-    fn handle_event(&self, event: HandlerEvent);
+    fn new() -> Self;
+    fn handle_event(&mut self, event: HandlerEvent);
 }
 
 #[cfg(test)]
@@ -59,40 +73,40 @@ mod tests {
 
     #[test]
     fn amount_integer() {
-        assert_eq!(Amount::try_from("42").unwrap().0, "42")
+        assert_eq!(Amount::from_str("42").unwrap().0, "42")
     }
 
     #[test]
     fn amount_decimal_0_digits_fail() {
-        assert!(Amount::try_from("42.").is_err(), "No digits followed dot");
-        assert!(Amount::try_from("42,").is_err(), "No digits followed comma");
+        assert!(Amount::from_str("42.").is_err(), "No digits followed dot");
+        assert!(Amount::from_str("42,").is_err(), "No digits followed comma");
     }
 
     #[test]
     fn amount_decimal_1_digit() {
-        assert_eq!(Amount::try_from("42.1").unwrap().0, "42.1")
+        assert_eq!(Amount::from_str("42.1").unwrap().0, "42.1")
     }
 
     #[test]
     fn amount_decimal_2_digits() {
-        assert_eq!(Amount::try_from("42.13").unwrap().0, "42.13")
+        assert_eq!(Amount::from_str("42.13").unwrap().0, "42.13")
     }
 
     #[test]
     fn amount_decimal_3_digits_fail() {
         assert!(
-            Amount::try_from("42.135").is_err(),
+            Amount::from_str("42.135").is_err(),
             "More than 2 digits followed separator"
         );
     }
 
     #[test]
     fn amount_decimal_with_comma_replaced() {
-        assert_eq!(Amount::try_from("42,13").unwrap().0, "42.13")
+        assert_eq!(Amount::from_str("42,13").unwrap().0, "42.13")
     }
 
     #[test]
     fn amount_negative_is_allowed() {
-        assert_eq!(Amount::try_from("-42").unwrap().0, "-42")
+        assert_eq!(Amount::from_str("-42").unwrap().0, "-42")
     }
 }

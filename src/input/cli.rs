@@ -1,47 +1,53 @@
 use std::{env, io};
 
+use log::*;
+use tokio::sync::mpsc::Sender;
+
 use async_trait::async_trait;
 
-use crate::handler::{Input, RawMessageParser};
-use crate::input::InputHandler;
+use crate::handler::Input;
+use crate::input::{Command, CommandReader};
 
 pub struct ConsoleInputHandler {
-    parser: RawMessageParser,
+    commands: Sender<Command>,
     user: String,
 }
 
 #[allow(clippy::new_without_default)]
-impl ConsoleInputHandler {
-    pub fn new(parser: RawMessageParser) -> Self {
+impl ConsoleInputHandler {}
+
+#[async_trait(? Send)]
+impl CommandReader for ConsoleInputHandler {
+    fn new(commands: Sender<Command>) -> Self {
         ConsoleInputHandler {
-            parser,
+            commands,
             user: env::var("USER").unwrap_or("console".to_string()),
         }
     }
-}
 
-#[async_trait(?Send)]
-impl InputHandler for ConsoleInputHandler {
     fn name(&self) -> &str {
         "CLI"
     }
 
-    async fn start(self) -> io::Result<()> {
-        let mut counter = 0i64;
+    async fn start(mut self) -> io::Result<()> {
         loop {
-            counter += counter;
-            let mut buffer = String::new();
-            if io::stdin().read_line(&mut buffer).is_ok() && !buffer.trim().is_empty() {
-                let output = self.parser.handle_message(Input {
-                    id: counter,
+            let mut text = String::new();
+            if io::stdin().read_line(&mut text).is_ok() && !text.trim().is_empty() {
+                let id = chrono::Utc::now().timestamp();
+                let input = Input {
+                    id,
                     user: self.user.clone(),
-                    text: buffer,
+                    text,
                     is_new: true,
-                });
-                if let Some(output) = output {
-                    println!("{}", output.text);
+                };
+                let cmd = Command::RecordMessage(input);
+                if let Err(err) = self.commands.send(cmd).await {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        format!("Error during send command: {}", err),
+                    ));
                 } else {
-                    println!("Error")
+                    info!("Command {} has been sent", id);
                 }
             } else {
                 break;

@@ -1,14 +1,11 @@
-use std::convert::TryInto;
-
 use chrono::Local;
 use log::debug;
 
 use crate::handler::categorizer::{load_categories, Categorizer};
-use crate::handler::events::google_docs::GoogleDocsEventHandler;
-use crate::handler::events::{Amount, BudgetRecord, EventHandler, HandlerEvent};
+use crate::handler::events::{Amount, BudgetRecord, HandlerEvent};
 
 mod categorizer;
-mod events;
+pub(crate) mod events;
 
 #[derive(Debug)]
 pub struct Input {
@@ -21,24 +18,21 @@ pub struct Input {
 #[derive(Debug)]
 pub struct Output {
     pub text: String,
+    pub events: Vec<HandlerEvent>,
 }
 
 pub struct RawMessageParser {
     categorizer: Categorizer,
-    event_handler: GoogleDocsEventHandler,
 }
 
 impl RawMessageParser {
     pub fn new() -> RawMessageParser {
         let mut categorizer = Categorizer::new();
         load_categories(&mut categorizer);
-        RawMessageParser {
-            categorizer,
-            event_handler: GoogleDocsEventHandler::new(),
-        }
+        RawMessageParser { categorizer }
     }
 
-    pub fn handle_message(&self, input: Input) -> Option<Output> {
+    pub fn handle_message(&mut self, input: Input) -> Option<Output> {
         debug!("{:?}", &input);
         let text = &input.text;
         let category = self.categorizer.classify(text)?;
@@ -48,18 +42,19 @@ impl RawMessageParser {
             date: Local::today().naive_local(),
             category: category.name.to_owned(),
             amount,
-            desc: input.text,
+            desc: input.text.trim().to_string(),
             user: input.user,
         };
-        let mut events = Vec::new();
-        if input.is_new {
-            events.push(HandlerEvent::AddRecord(record))
+        let event = if input.is_new {
+            HandlerEvent::AddRecord(record)
         } else {
-            events.push(HandlerEvent::UpdateRecord(record))
-        }
-        let reply = RawMessageParser::build_reply_message(events.iter().next().as_ref().unwrap());
-        self.handle_events(events);
-        let output = Output { text: reply };
+            HandlerEvent::UpdateRecord(record)
+        };
+        let reply = RawMessageParser::build_reply_message(&event);
+        let output = Output {
+            text: reply,
+            events: vec![event],
+        };
         debug!("{:?}", &output);
         Some(output)
     }
@@ -81,18 +76,12 @@ impl RawMessageParser {
         let trim_pattern: &[_] = &['.', ','];
         for word in text.split_whitespace() {
             let word = word.trim_end_matches(trim_pattern);
-            let amount = word.try_into();
+            let amount = word.parse();
             if let Ok(amount) = amount {
                 return Some(amount);
             }
         }
         None
-    }
-
-    fn handle_events(&self, events: Vec<HandlerEvent>) {
-        for event in events {
-            self.event_handler.handle_event(event);
-        }
     }
 }
 
