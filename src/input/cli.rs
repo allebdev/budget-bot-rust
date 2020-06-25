@@ -8,15 +8,15 @@ use crate::handler::Input;
 use crate::input::{Command, CommandReader, MainController};
 use std::io::Write;
 
-pub struct ConsoleInputHandler {
+pub struct CliCommandReader {
     ctrl: MainController,
     user: String,
 }
 
 #[async_trait(? Send)]
-impl CommandReader for ConsoleInputHandler {
+impl CommandReader for CliCommandReader {
     fn new(controller: MainController) -> Self {
-        ConsoleInputHandler {
+        CliCommandReader {
             ctrl: controller,
             user: env::var("USER").unwrap_or("console".to_string()),
         }

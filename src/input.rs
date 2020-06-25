@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use crate::handler::events::EventHandler;
 use crate::handler::{Input, RawMessageParser};
 #[cfg(feature = "cli")]
-use crate::input::cli::ConsoleInputHandler;
+use crate::input::cli::CliCommandReader;
 #[cfg(feature = "telegram")]
 use crate::input::telegram::TelegramInputHandler;
 
@@ -44,7 +44,7 @@ impl MainController {
 }
 
 #[cfg(feature = "cli")]
-pub type DefaultCommandReader = ConsoleInputHandler;
+pub type DefaultCommandReader = CliCommandReader;
 
 #[cfg(feature = "telegram")]
 pub type DefaultCommandReader = TelegramInputHandler;
