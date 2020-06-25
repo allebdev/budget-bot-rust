@@ -8,8 +8,8 @@ pub struct CsvEventHandler {
     writer: csv::Writer<File>,
 }
 
-impl EventHandler for CsvEventHandler {
-    fn new() -> Self {
+impl CsvEventHandler {
+    pub fn new() -> Self {
         let file = OpenOptions::new()
             .create(true)
             .read(true)
@@ -23,7 +23,9 @@ impl EventHandler for CsvEventHandler {
                 .from_writer(file),
         }
     }
+}
 
+impl EventHandler for CsvEventHandler {
     fn handle_event(&mut self, event: HandlerEvent) {
         match event {
             HandlerEvent::AddRecord(record) => {

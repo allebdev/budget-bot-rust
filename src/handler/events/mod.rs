@@ -63,7 +63,6 @@ pub enum HandlerEvent {
 }
 
 pub trait EventHandler {
-    fn new() -> Self;
     fn handle_event(&mut self, event: HandlerEvent);
 }
 
