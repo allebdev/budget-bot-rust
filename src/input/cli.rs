@@ -40,9 +40,10 @@ impl CommandReader for CliCommandReader {
                     is_new: true,
                 };
                 let cmd = Command::RecordMessage(input);
-                match self.ctrl.dispatch(cmd) {
-                    Ok(response) => println!("<- {}", response),
-                    Err(_) => error!("Unknown command"),
+                if let Some(response) = self.ctrl.dispatch(cmd) {
+                    println!("<- {}", response)
+                } else {
+                    debug!("Nothing to reply")
                 }
             } else {
                 break;
