@@ -7,7 +7,7 @@ use crate::handler::{Input, RawMessageParser};
 #[cfg(feature = "cli")]
 use crate::input::cli::CliCommandReader;
 #[cfg(feature = "telegram")]
-use crate::input::telegram::TelegramInputHandler;
+use crate::input::telegram::TelegramCommandReader;
 
 #[cfg(feature = "cli")]
 mod cli;
@@ -23,22 +23,21 @@ pub trait CommandReader {
 
 pub struct MainController {
     pub(crate) parser: RawMessageParser,
-    pub(crate) handler: Box<dyn EventHandler>,
+    pub(crate) handler: Box<dyn EventHandler + Send + Sync>,
 }
 
 impl MainController {
-    fn dispatch(&mut self, cmd: Command) -> Result<String, ()> {
+    fn dispatch(&mut self, cmd: Command) -> Option<String> {
         match cmd {
-            Command::RecordMessage(input) => {
-                if let Some(output) = self.parser.handle_message(input) {
+            Command::RecordMessage(input) => match self.parser.handle_message(input) {
+                Some(output) => {
                     for event in output.events {
                         self.handler.handle_event(event);
                     }
-                    Ok(output.text)
-                } else {
-                    Err(())
+                    Some(output.text)
                 }
-            }
+                None => None,
+            },
         }
     }
 }
@@ -47,7 +46,7 @@ impl MainController {
 pub type DefaultCommandReader = CliCommandReader;
 
 #[cfg(feature = "telegram")]
-pub type DefaultCommandReader = TelegramInputHandler;
+pub type DefaultCommandReader = TelegramCommandReader;
 
 #[derive(Debug)]
 pub enum Command {

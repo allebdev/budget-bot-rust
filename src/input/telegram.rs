@@ -6,17 +6,27 @@ use tokio::{select, sync::mpsc, sync::RwLock, time};
 
 use async_trait::async_trait;
 
-use crate::handler::{Input, Output, RawMessageParser};
-use crate::input::InputHandler;
+use crate::handler::Input;
+use crate::input::{Command, CommandReader, MainController};
 
-pub struct TelegramInputHandler {
-    parser: RawMessageParser,
+pub struct TelegramCommandReader {
+    ctrl: MainController,
     timeout: time::Duration,
     tx: Option<mpsc::Sender<update::Id>>,
 }
 
 #[async_trait(? Send)]
-impl InputHandler for TelegramInputHandler {
+impl CommandReader for TelegramCommandReader {
+    fn new(controller: MainController) -> Self {
+        let timeout =
+            env::var("BOT_TIMEOUT").map_or(5, |v| v.parse().expect("BOT_TIMEOUT must be a number"));
+        TelegramCommandReader {
+            ctrl: controller,
+            timeout: time::Duration::from_secs(timeout),
+            tx: None,
+        }
+    }
+
     fn name(&self) -> &str {
         "Telegram"
     }
@@ -63,27 +73,17 @@ impl InputHandler for TelegramInputHandler {
     }
 }
 
-impl TelegramInputHandler {
-    pub fn new(parser: RawMessageParser) -> Self {
-        let timeout =
-            env::var("BOT_TIMEOUT").map_or(5, |v| v.parse().expect("BOT_TIMEOUT must be a number"));
-        TelegramInputHandler {
-            parser,
-            timeout: time::Duration::from_secs(timeout),
-            tx: None,
-        }
-    }
-
+impl TelegramCommandReader {
     async fn poll_updates(self) -> Result<Infallible, errors::PollingSetup> {
         let timeout = self.timeout.as_secs() + 1;
         let mut bot = Bot::from_env("BOT_TOKEN").stateful_event_loop(RwLock::new(self));
 
         bot.text(|ctx, this| async move {
-            this.read().await.process_text(ctx, false).await;
+            this.write().await.process_text(ctx, false).await;
         });
 
         bot.edited_text(|ctx, this| async move {
-            this.read().await.process_text(ctx, true).await;
+            this.write().await.process_text(ctx, true).await;
         });
 
         bot.after_update(|upd, this| async move {
@@ -95,7 +95,7 @@ impl TelegramInputHandler {
         bot.polling().timeout(timeout).start().await
     }
 
-    async fn process_text<'s>(&self, ctx: Arc<impl Text>, edited: bool) {
+    async fn process_text<'s>(&mut self, ctx: Arc<impl Text>, edited: bool) {
         let username = ctx
             .from()
             .and_then(|user| user.username.as_deref())
@@ -109,19 +109,20 @@ impl TelegramInputHandler {
             value
         );
 
-        let output = self.parser.handle_message(Input {
+        let cmd = Command::RecordMessage(Input {
             id: ctx.message_id().0 as i64,
             user: username.to_owned(),
             text: value.clone(),
             is_new: !edited,
         });
-
-        if let Some(Output { text }) = output {
+        if let Some(text) = self.ctrl.dispatch(cmd) {
             debug!("Reply to message #{}: {:?}", ctx.message_id(), text);
             let result = ctx.send_message_in_reply(&text).call().await;
             if let Err(err) = result {
                 error!("Error on reply to message #{}: {}", ctx.message_id(), err);
             }
+        } else {
+            debug!("Nothing to reply on message #{}", ctx.message_id());
         }
     }
 }
