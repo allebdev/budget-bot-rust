@@ -1,7 +1,7 @@
 use chrono::Local;
 use log::debug;
 
-use crate::handler::categorizer::{load_categories, Categorizer};
+use crate::handler::categorizer::{Categorizer, CategoryProvider};
 use crate::handler::events::{Amount, BudgetRecord, HandlerEvent};
 
 mod categorizer;
@@ -26,9 +26,9 @@ pub struct RawMessageParser {
 }
 
 impl RawMessageParser {
-    pub fn new() -> RawMessageParser {
+    pub fn new<P: CategoryProvider>(provider: &P) -> RawMessageParser {
         let mut categorizer = Categorizer::new();
-        load_categories(&mut categorizer);
+        categorizer.load_categories(provider);
         RawMessageParser { categorizer }
     }
 

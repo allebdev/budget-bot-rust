@@ -7,9 +7,10 @@ extern crate serde_derive;
 
 use log::*;
 
-use crate::handler::events::DefaultEventHandler;
-use crate::handler::RawMessageParser;
-use crate::input::{CommandReader, DefaultCommandReader, MainController};
+use crate::{
+    handler::{events::DefaultEventHandler, RawMessageParser},
+    input::{CommandReader, DefaultCommandReader, MainController},
+};
 
 mod handler;
 mod input;
@@ -17,7 +18,7 @@ mod input;
 pub async fn start() -> Result<(), String> {
     let handler = DefaultEventHandler::new();
     let command_reader = DefaultCommandReader::new(MainController {
-        parser: RawMessageParser::new(),
+        parser: RawMessageParser::new(&handler),
         handler: Box::new(handler),
     });
 

@@ -5,6 +5,10 @@ use std::iter::FromIterator;
 #[cfg(test)]
 mod tests;
 
+pub trait CategoryProvider {
+    fn categories(&self) -> Vec<Category>;
+}
+
 pub struct Categorizer {
     categories: Option<BTreeSet<Category>>,
 }
@@ -30,6 +34,12 @@ impl Categorizer {
         }
 
         results.pop().or_else(|| self.default_category())
+    }
+
+    pub(crate) fn load_categories<P: CategoryProvider>(&mut self, provider: &P) {
+        for c in provider.categories() {
+            self.add_category(c);
+        }
     }
 
     fn add_category(&mut self, category: Category) -> bool {
@@ -78,6 +88,13 @@ impl Ord for Category {
 }
 
 impl Category {
+    pub fn new(name: String, priority: i32, lexemes: LexemeList) -> Self {
+        Category {
+            name,
+            priority,
+            lexemes,
+        }
+    }
     fn match_word(&self, word: &str) -> bool {
         let word = word.trim().to_lowercase();
         self.lexemes.0.iter().any(|l| word.starts_with(&l.0))
@@ -94,28 +111,10 @@ impl From<&str> for Lexeme {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-struct LexemeList(Vec<Lexeme>);
+pub struct LexemeList(Vec<Lexeme>);
 
 impl From<&str> for LexemeList {
     fn from(text: &str) -> Self {
         LexemeList(text.split(',').map(Lexeme::from).collect())
     }
-}
-
-pub fn load_categories(categorizer: &mut Categorizer) {
-    categorizer.add_category(Category {
-        name: String::from("Sweets"),
-        priority: 10,
-        lexemes: "cand,sweet,chocolate".into(),
-    });
-    categorizer.add_category(Category {
-        name: String::from("Fruits"),
-        priority: 20,
-        lexemes: "apple,banana,orange".into(),
-    });
-    categorizer.add_category(Category {
-        name: String::from("Others"),
-        priority: 99999,
-        lexemes: "other,misc".into(),
-    });
 }
