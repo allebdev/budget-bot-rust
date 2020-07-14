@@ -2,10 +2,27 @@ use std::fs::{File, OpenOptions};
 
 use csv;
 
+use crate::handler::categorizer::{Category, CategoryProvider};
 use crate::handler::events::{EventHandler, HandlerEvent};
 
 pub struct CsvEventHandler {
     writer: csv::Writer<File>,
+}
+
+impl CategoryProvider for CsvEventHandler {
+    fn categories(&self) -> Vec<Category> {
+        let file = OpenOptions::new()
+            .read(true)
+            .open("categories.csv")
+            .expect("Can't read categories.csv");
+        let mut reader = csv::ReaderBuilder::new().delimiter(b';').from_reader(file);
+        let mut iter = reader.deserialize();
+        let mut categories = vec![];
+        while let Some(Ok(category)) = iter.next() {
+            categories.push(category);
+        }
+        categories
+    }
 }
 
 impl CsvEventHandler {

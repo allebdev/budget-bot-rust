@@ -9,7 +9,7 @@ edition = "2018"
 #default = ["cli","csv-storage"]
 cli=[]
 telegram=["tbot"]
-csv-storage=["csv"]
+csv-storage=["csv", "serde_with"]
 gss-storage=["google-sheets4","yup-oauth2","hyper","hyper-rustls"]
 
 [dependencies]
@@ -24,6 +24,7 @@ async-trait = "0.1"
 csv = {version="1.1", optional=true}
 serde = "^1.0"
 serde_json = "^1.0"
+serde_with = {version="^1.4", optional=true}
 alt_serde_derive = "1.0"
 google-sheets4 = {version="1.0.13+20200402", optional=true}
 yup-oauth2 = {version="^1.0", optional=true}

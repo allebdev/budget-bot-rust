@@ -1,6 +1,10 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, BinaryHeap};
+use std::fmt;
 use std::iter::FromIterator;
+use std::str::FromStr;
+
+use serde::export::Formatter;
 
 #[cfg(test)]
 mod tests;
@@ -57,10 +61,11 @@ impl Categorizer {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Category {
     pub name: String,
     priority: i32,
+    #[serde(with = "serde_with::rust::display_fromstr")]
     lexemes: LexemeList,
 }
 
@@ -88,6 +93,7 @@ impl Ord for Category {
 }
 
 impl Category {
+    #[allow(dead_code)]
     pub fn new(name: String, priority: i32, lexemes: LexemeList) -> Self {
         Category {
             name,
@@ -101,7 +107,7 @@ impl Category {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 struct Lexeme(String);
 
 impl From<&str> for Lexeme {
@@ -110,11 +116,32 @@ impl From<&str> for Lexeme {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+impl fmt::Display for Lexeme {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub struct LexemeList(Vec<Lexeme>);
 
 impl From<&str> for LexemeList {
     fn from(text: &str) -> Self {
         LexemeList(text.split(',').map(Lexeme::from).collect())
+    }
+}
+
+impl FromStr for LexemeList {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(From::<&str>::from(s))
+    }
+}
+
+impl fmt::Display for LexemeList {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let str_vec: Vec<_> = self.0.iter().map(|x| x.0.as_str()).collect();
+        write!(f, "{}", str_vec.join(","))
     }
 }
