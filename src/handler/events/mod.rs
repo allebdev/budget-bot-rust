@@ -25,7 +25,7 @@ lazy_static! {
     static ref RE_AMOUNT: Regex = Regex::new(r"^-?\d+(?:[.,]\d{1,2})?$").unwrap();
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct Amount(pub(crate) String);
 
 impl fmt::Display for Amount {

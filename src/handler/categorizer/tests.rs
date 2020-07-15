@@ -35,14 +35,14 @@ fn fake_category_others() -> Category {
 #[test]
 fn classify_in_accord_with_priority() {
     let c = fake_categorizer();
-    let category = c.classify("10 for banana chocolates");
+    let category = c.classify_msg("10 for banana chocolates");
     assert_eq!(category.unwrap().name, "Sweets"); // because of priority
 }
 
 #[test]
 fn classify_with_ignore_case() {
     let c = fake_categorizer();
-    let category = c.classify("10 for BANANA Chocolates");
+    let category = c.classify_msg("10 for BANANA Chocolates");
     assert_eq!(category.unwrap().name, "Sweets");
 }
 
@@ -52,7 +52,7 @@ fn classify_default_category() {
     c.add_category(fake_category_sweets());
     c.add_category(fake_category_fruits());
     c.add_category(fake_category_others());
-    let category = c.classify("10 for tea");
+    let category = c.classify_msg("10 for tea");
     assert_eq!(category.unwrap().name, "Others")
 }
 

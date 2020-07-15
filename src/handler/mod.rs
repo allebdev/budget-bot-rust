@@ -3,9 +3,11 @@ use log::debug;
 
 use crate::handler::categorizer::{Categorizer, CategoryProvider};
 use crate::handler::events::{Amount, BudgetRecord, HandlerEvent};
+use crate::handler::tokenizer::{tokenize, MessageTokens, Token};
 
 mod categorizer;
 pub(crate) mod events;
+mod tokenizer;
 
 #[derive(Debug)]
 pub struct Input {
@@ -34,15 +36,13 @@ impl RawMessageParser {
 
     pub fn handle_message(&mut self, input: Input) -> Option<Output> {
         debug!("{:?}", &input);
-        let text = &input.text;
-        let category = self.categorizer.classify(text)?;
-        let amount = RawMessageParser::parse_amount(text)?;
+        let tokens = tokenize(&input.text);
         let record = BudgetRecord {
             id: input.id,
             date: Local::today().naive_local(),
-            category: category.name.to_owned(),
-            amount,
-            desc: input.text.trim().to_string(),
+            category: self.categorizer.classify(&tokens)?.name.to_owned(),
+            amount: RawMessageParser::extract_amount(&tokens)?,
+            desc: RawMessageParser::extract_description(&tokens),
             user: input.user,
         };
         let event = if input.is_new {
@@ -72,22 +72,48 @@ impl RawMessageParser {
         }
     }
 
-    fn parse_amount(text: &str) -> Option<Amount> {
-        let trim_pattern: &[_] = &['.', ','];
-        for word in text.split_whitespace() {
-            let word = word.trim_end_matches(trim_pattern);
-            let amount = word.parse();
-            if let Ok(amount) = amount {
-                return Some(amount);
+    fn extract_description(tokens: &MessageTokens) -> String {
+        let mut result = String::new();
+        let mut trailing_signs_buffer = None;
+        for t in tokens {
+            match t {
+                Token::TrailingSigns(signs)
+                    if !result.is_empty() && trailing_signs_buffer.is_none() =>
+                {
+                    trailing_signs_buffer = Some(signs);
+                }
+                Token::Word(word) => {
+                    if let Some(signs) = trailing_signs_buffer.take() {
+                        result.push_str(signs);
+                    }
+                    if !result.is_empty() {
+                        result.push(' ');
+                    }
+                    result.push_str(word);
+                }
+                _ => {}
             }
         }
-        None
+        result
+    }
+
+    #[allow(dead_code)]
+    fn parse_amount(text: &str) -> Option<Amount> {
+        RawMessageParser::extract_amount(&tokenize(text))
+    }
+
+    fn extract_amount(tokens: &MessageTokens) -> Option<Amount> {
+        tokens.iter().find_map(|t| match t {
+            Token::Amount(amount) => Some(amount.clone()),
+            _ => None,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::handler::events::Amount;
+    use crate::handler::tokenizer::tokenize;
     use crate::handler::RawMessageParser as MH;
 
     #[test]
@@ -112,5 +138,21 @@ mod tests {
             MH::parse_amount("5 for 2 kg of candies"),
             Some(Amount(String::from("5")))
         );
+    }
+
+    #[test]
+    fn extract_description_with_signs_after_amount_in_the_beginning() {
+        assert_eq!(
+            MH::extract_description(&tokenize("9,75. Chocolate pie")),
+            "Chocolate pie".to_string()
+        )
+    }
+
+    #[test]
+    fn extract_description_with_signs_after_amount_in_the_end() {
+        assert_eq!(
+            MH::extract_description(&tokenize("Chocolate pie, 9,75.")),
+            "Chocolate pie".to_string()
+        )
     }
 }

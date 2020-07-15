@@ -6,6 +6,8 @@ use std::str::FromStr;
 
 use serde::export::Formatter;
 
+use crate::handler::tokenizer::{tokenize, MessageTokens, Token};
+
 #[cfg(test)]
 mod tests;
 
@@ -22,17 +24,24 @@ impl Categorizer {
         Categorizer { categories: None }
     }
 
-    pub(crate) fn classify(&self, text: &str) -> Option<&Category> {
+    #[allow(dead_code)]
+    pub(crate) fn classify_msg(&self, text: &str) -> Option<&Category> {
+        self.classify(&tokenize(text))
+    }
+
+    pub(crate) fn classify(&self, tokens: &MessageTokens) -> Option<&Category> {
         let categories = self
             .categories
             .as_ref()
             .expect("categories must be loaded before classify text");
 
         let mut results = BinaryHeap::new();
-        for word in text.split_whitespace() {
-            for c in categories.iter() {
-                if c.match_word(word) {
-                    results.push(c);
+        for token in tokens {
+            if let Token::Word(word) = token {
+                for c in categories.iter() {
+                    if c.match_word(word) {
+                        results.push(c);
+                    }
                 }
             }
         }
