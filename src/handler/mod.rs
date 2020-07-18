@@ -6,6 +6,7 @@ use crate::handler::events::{Amount, BudgetRecord, HandlerEvent};
 use crate::handler::tokenizer::{tokenize, MessageTokens, Token};
 
 mod categorizer;
+pub mod date_parser;
 pub(crate) mod events;
 mod tokenizer;
 

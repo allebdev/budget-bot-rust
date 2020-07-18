@@ -8,6 +8,7 @@ use regex::Regex;
 use crate::handler::events::csv::CsvEventHandler;
 #[cfg(feature = "gss-storage")]
 use crate::handler::events::google_docs::GoogleDocsEventHandler;
+use std::num::ParseIntError;
 
 #[cfg(feature = "csv-storage")]
 mod csv;
@@ -27,6 +28,12 @@ lazy_static! {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct Amount(pub(crate) String);
+
+impl Amount {
+    pub fn as_i32(&self) -> Result<i32, ParseIntError> {
+        self.0.parse::<i32>()
+    }
+}
 
 impl fmt::Display for Amount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -2,17 +2,17 @@ use crate::handler::events::Amount;
 use crate::handler::tokenizer::Token::Word;
 
 #[derive(Debug, PartialEq)]
-pub(crate) enum Token<'a> {
+pub enum Token<'a> {
     Word(&'a str),
     Amount(Amount),
     TrailingSigns(&'a str),
 }
 
-pub(crate) type MessageTokens<'a> = Vec<Token<'a>>;
+pub type MessageTokens<'a> = Vec<Token<'a>>;
 
 const TRAILING_SIGNS: &[char] = &['.', ',', ':', ';', '!', '?'];
 
-pub(crate) fn tokenize(text: &str) -> MessageTokens {
+pub fn tokenize(text: &str) -> MessageTokens {
     let mut result = Vec::new();
     for word in text.split_whitespace() {
         let original_word = word;

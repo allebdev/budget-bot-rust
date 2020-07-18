@@ -12,7 +12,7 @@ use crate::{
     input::{CommandReader, DefaultCommandReader, MainController},
 };
 
-mod handler;
+pub mod handler;
 mod input;
 
 pub async fn start() -> Result<(), String> {
