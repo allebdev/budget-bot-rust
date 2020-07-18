@@ -1,4 +1,5 @@
-use super::{assert_text, days_between_weekdays, DateShiftParser};
+use super::{assert_text, DateShiftParser};
+use crate::handler::date_parser::WeekdayExt;
 use crate::handler::tokenizer::{MessageTokens, Token};
 use chrono::{Datelike, Duration, Local, Weekday};
 use std::str::FromStr;
@@ -14,7 +15,7 @@ impl DateShiftParser for EnglishDateShiftParser {
                 Token::Word(w) if w.to_lowercase() == "last" => match tokens.get(i + 1) {
                     Some(Token::Word(w)) => match Weekday::from_str(w) {
                         Ok(wd) => {
-                            let x = days_between_weekdays(wd, Local::today().weekday());
+                            let x = Local::today().weekday().days_since(wd);
                             Some(Duration::days(if x == 0 { 7 } else { x.into() }))
                         }
                         Err(..) => None,

@@ -8,24 +8,30 @@ pub trait DateShiftParser {
     fn parse_date_shift(tokens: MessageTokens) -> Option<Duration>;
 }
 
+pub trait WeekdayExt {
+    /// Calculate number of days between `another` and `self`
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use chrono::Weekday;
+    /// use tg_bot_playground::handler::date_parser::WeekdayExt;
+    ///
+    /// assert_eq!(Weekday::Fri.days_since(Weekday::Mon), 4);
+    /// assert_eq!(Weekday::Mon.days_since(Weekday::Fri), 3);
+    /// assert_eq!(Weekday::Wed.days_since(Weekday::Wed), 0);
+    /// ```
+    fn days_since(&self, another: Weekday) -> u32;
+}
+
+impl WeekdayExt for Weekday {
+    fn days_since(&self, another: Weekday) -> u32 {
+        (7 + self.num_days_from_monday() - another.num_days_from_monday()) % 7
+    }
+}
+
 pub fn assert_text(tokens: &[Token], text: &str) -> bool {
     let text = text.to_lowercase();
     let expected = tokenize(&text);
     tokens.len() == expected.len() && expected.iter().zip(tokens).all(|(t1, t2)| t1 == t2)
-}
-
-/// Calculate number of days between `from` and `to` (assumed that `from` before `to`)
-///
-/// # Example
-///
-/// ```
-/// use chrono::Weekday;
-/// use tg_bot_playground::handler::date_parser::days_between_weekdays;
-///
-/// assert_eq!(days_between_weekdays(Weekday::Mon, Weekday::Fri), 4);
-/// assert_eq!(days_between_weekdays(Weekday::Fri, Weekday::Mon), 3);
-/// assert_eq!(days_between_weekdays(Weekday::Wed, Weekday::Wed), 0);
-/// ```
-pub fn days_between_weekdays(from: Weekday, to: Weekday) -> u32 {
-    (7 + to.num_days_from_monday() - from.num_days_from_monday()) % 7
 }
