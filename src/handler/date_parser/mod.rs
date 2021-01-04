@@ -5,7 +5,7 @@ use chrono::{Duration, Weekday};
 use crate::handler::tokenizer::*;
 
 pub trait DateShiftParser {
-    fn parse_date_shift(tokens: MessageTokens) -> Option<Duration>;
+    fn parse_date_shift(tokens: &MessageTokens) -> Option<Duration>;
 }
 
 pub trait WeekdayExt {

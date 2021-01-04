@@ -8,6 +8,25 @@ pub enum Token<'a> {
     TrailingSigns(&'a str),
 }
 
+impl Token<'_> {
+    pub fn any_of_words(&self, words: &[&str]) -> bool {
+        if let Token::Word(word) = self {
+            let word = word.to_lowercase();
+            words.iter().any(|w| w.to_lowercase() == word)
+        } else {
+            false
+        }
+    }
+
+    pub fn is_word(&self, word: &str) -> bool {
+        if let Token::Word(w) = self {
+            w.to_lowercase().eq(word)
+        } else {
+            false
+        }
+    }
+}
+
 pub type MessageTokens<'a> = Vec<Token<'a>>;
 
 const TRAILING_SIGNS: &[char] = &['.', ',', ':', ';', '!', '?'];
