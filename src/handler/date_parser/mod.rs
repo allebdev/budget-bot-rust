@@ -1,9 +1,21 @@
 use chrono::{Duration, Weekday};
 
+#[cfg(feature = "parser-en")]
+use crate::handler::date_parser::english::EnglishDateShiftParser;
+#[cfg(feature = "parser-ru")]
+use crate::handler::date_parser::russian::RussianDateShiftParser;
+
 use crate::handler::tokenizer::*;
 
+#[cfg(feature = "parser-en")]
 pub mod english;
+#[cfg(feature = "parser-ru")]
 pub mod russian;
+
+#[cfg(feature = "parser-en")]
+pub type DefaultDateShiftParser = EnglishDateShiftParser;
+#[cfg(feature = "parser-ru")]
+pub type DefaultDateShiftParser = RussianDateShiftParser;
 
 pub trait DateShiftParser {
     fn parse_date_shift(tokens: &MessageTokens) -> Option<Duration>;

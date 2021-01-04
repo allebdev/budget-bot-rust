@@ -4,7 +4,7 @@ use std::ops::Sub;
 
 use crate::handler::{
     categorizer::{Categorizer, CategoryProvider},
-    date_parser::{russian::RussianDateShiftParser, DateShiftParser},
+    date_parser::{DateShiftParser, DefaultDateShiftParser},
     events::{Amount, BudgetRecord, HandlerEvent},
     tokenizer::{tokenize, MessageTokens, Token},
 };
@@ -46,7 +46,7 @@ impl RawMessageParser {
             id: input.id,
             date: Local::today()
                 .naive_local()
-                .sub(RussianDateShiftParser::parse_date_shift(&tokens).unwrap_or(Duration::zero())),
+                .sub(DefaultDateShiftParser::parse_date_shift(&tokens).unwrap_or(Duration::zero())),
             category: self.categorizer.classify(&tokens)?.name.to_owned(),
             amount: RawMessageParser::extract_amount(&tokens)?,
             desc: RawMessageParser::extract_description(&tokens),
