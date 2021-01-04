@@ -6,11 +6,13 @@ authors = ["Aleksei Lebedev <allebdev@gmail.com>"]
 edition = "2018"
 
 [features]
-#default = ["cli","csv-storage"]
+default = ["cli","csv-storage","parser-en"]
 cli=[]
 telegram=["tbot"]
 csv-storage=["csv"]
 gss-storage=["google-sheets4","yup-oauth2","hyper","hyper-rustls"]
+parser-ru=[]
+parser-en=[]
 
 [dependencies]
 tbot = {version="0.6", optional=true}
