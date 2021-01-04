@@ -1,19 +1,19 @@
 use std::env;
 
+use chrono::Local;
 use google_sheets4::{
     AddConditionalFormatRuleRequest, AddSheetRequest, BasicFilter, BatchUpdateSpreadsheetRequest,
     BooleanCondition, BooleanRule, CellData, CellFormat, Color, ConditionValue,
     ConditionalFormatRule, Error, GridProperties, GridRange, NumberFormat, RepeatCellRequest,
-    Request, SetBasicFilterRequest, SheetProperties, Sheets, TextFormat, ValueRange,
+    Request, SetBasicFilterRequest, SheetProperties, Sheets, SortSpec, TextFormat, ValueRange,
 };
 use hyper::Client;
 use log::{debug, error};
 use yup_oauth2::{ServiceAccountAccess, ServiceAccountKey};
 
-use crate::handler::events::BudgetRecord;
 use crate::handler::{
     categorizer::{Category, CategoryProvider},
-    events::{EventHandler, HandlerEvent},
+    events::{BudgetRecord, EventHandler, HandlerEvent},
 };
 
 const SS_SCOPE: &str = "https://www.googleapis.com/auth/spreadsheets";
@@ -99,7 +99,11 @@ impl EventHandler for GoogleDocsEventHandler {
                 if ids.map_or(true, |ids| !ids.contains(&sheet_id)) {
                     self.add_sheet(sheet_id, &sheet_name);
                 }
+                let record_date = record.date;
                 self.add_record(record, &sheet_name);
+                if record_date != Local::today().naive_local() {
+                    self.sort_sheet_data(sheet_id);
+                }
             }
             HandlerEvent::UpdateRecord(_) => {}
         }
@@ -146,7 +150,6 @@ impl GoogleDocsEventHandler {
                         ..Default::default()
                     },
                     hide_the_same_date_conditional_format_request(sheet_id),
-                    basic_filter_request(sheet_id, 0, Columns::_Count as i32),
                     number_format_request(
                         sheet_id,
                         Columns::Date as i32,
@@ -241,6 +244,24 @@ impl GoogleDocsEventHandler {
             error!("Error during adding record: {}", err);
         }
     }
+
+    fn sort_sheet_data(&mut self, sheet_id: i32) {
+        let hub = self.hub();
+        let call = hub.spreadsheets().batch_update(
+            BatchUpdateSpreadsheetRequest {
+                requests: Some(vec![basic_filter_request(
+                    sheet_id,
+                    0,
+                    Columns::_Count as i32,
+                )]),
+                ..Default::default()
+            },
+            &self.ss_id,
+        );
+        if let Err(err) = call.doit() {
+            error!("Error during adding record: {}", err);
+        }
+    }
 }
 
 #[inline]
@@ -277,6 +298,18 @@ fn basic_filter_request(sheet_id: i32, start_column: i32, end_column: i32) -> Re
                     end_column_index: Some(end_column),
                     ..Default::default()
                 }),
+                sort_specs: Some(vec![
+                    SortSpec {
+                        dimension_index: Some(0),
+                        sort_order: Some("ASCENDING".to_string()),
+                        ..Default::default()
+                    },
+                    SortSpec {
+                        dimension_index: Some(5),
+                        sort_order: Some("ASCENDING".to_string()),
+                        ..Default::default()
+                    },
+                ]),
                 ..Default::default()
             }),
         }),
