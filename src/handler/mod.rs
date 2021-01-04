@@ -1,9 +1,13 @@
-use chrono::Local;
+use chrono::{Duration, Local};
 use log::debug;
+use std::ops::Sub;
 
-use crate::handler::categorizer::{Categorizer, CategoryProvider};
-use crate::handler::events::{Amount, BudgetRecord, HandlerEvent};
-use crate::handler::tokenizer::{tokenize, MessageTokens, Token};
+use crate::handler::{
+    categorizer::{Categorizer, CategoryProvider},
+    date_parser::{russian::RussianDateShiftParser, DateShiftParser},
+    events::{Amount, BudgetRecord, HandlerEvent},
+    tokenizer::{tokenize, MessageTokens, Token},
+};
 
 mod categorizer;
 pub mod date_parser;
@@ -40,7 +44,9 @@ impl RawMessageParser {
         let tokens = tokenize(&input.text);
         let record = BudgetRecord {
             id: input.id,
-            date: Local::today().naive_local(),
+            date: Local::today()
+                .naive_local()
+                .sub(RussianDateShiftParser::parse_date_shift(&tokens).unwrap_or(Duration::zero())),
             category: self.categorizer.classify(&tokens)?.name.to_owned(),
             amount: RawMessageParser::extract_amount(&tokens)?,
             desc: RawMessageParser::extract_description(&tokens),
