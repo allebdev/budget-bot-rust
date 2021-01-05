@@ -1,4 +1,5 @@
 use core::fmt;
+use std::collections::HashMap;
 use std::env;
 
 use chrono::Local;
@@ -49,18 +50,29 @@ enum Columns {
 }
 
 pub struct GoogleDocsEventHandler {
-    ss_id: String,
+    categories_sheet_name: String,
+    data_sheet_name_format: String,
     key: ServiceAccountKey,
+    ss_id: String,
 }
 
 impl GoogleDocsEventHandler {
     pub fn new() -> Self {
-        let ss_id = env::var("SPREADSHEET_ID").expect("SPREADSHEET_ID must be provided");
+        let ss_id = env::var("GSS_SPREADSHEET_ID").expect("GSS_SPREADSHEET_ID must be provided");
         let creds = env::var("GSS_CREDENTIALS").expect("GSS_CREDENTIALS must be provided");
+        let data_sheet_name_format =
+            env::var("GSS_DATA_SHEET_NAME_FORMAT").unwrap_or("%Y-%m".to_owned());
+        let categories_sheet_name =
+            env::var("GSS_CATEGORIES_SHEET_NAME").unwrap_or("Categories".to_owned());
         let key = serde_json::from_str::<ServiceAccountKey>(&creds)
             .expect("GSS_CREDENTIALS must be a valid credentials JSON");
 
-        GoogleDocsEventHandler { ss_id, key }
+        GoogleDocsEventHandler {
+            categories_sheet_name,
+            ss_id,
+            key,
+            data_sheet_name_format,
+        }
     }
 
     fn auth(&self) -> ServiceAccountAccess<Client> {
@@ -83,12 +95,11 @@ impl GoogleDocsEventHandler {
     }
 }
 
-const CATEGORIES_RANGE: &str = "Categories!A1:C";
-
 impl CategoryProvider for GoogleDocsEventHandler {
     fn categories(&self) -> Vec<Category> {
         let hub = self.hub();
-        let call = hub.spreadsheets().values_get(&self.ss_id, CATEGORIES_RANGE);
+        let range = format!("{}!A1:C", self.categories_sheet_name);
+        let call = hub.spreadsheets().values_get(&self.ss_id, &range);
         if let Some(data) = call.doit().expect("Can not fetch categories").1.values {
             data.iter()
                 .map(|c| {
@@ -112,14 +123,18 @@ impl EventHandler for GoogleDocsEventHandler {
     fn handle_event(&mut self, event: HandlerEvent) -> Result<(), String> {
         match event {
             HandlerEvent::AddRecord(record) => {
-                let sheet_name = record.date.format("%Y-%m").to_string();
                 let sheet_id = record.date.format("%Y%m").to_string().parse().unwrap();
-                let ids = self.list_sheet_ids();
-                if ids.map_or(true, |ids| !ids.contains(&sheet_id)) {
-                    self.add_sheet(sheet_id, &sheet_name);
+                let mut sheet_name = self
+                    .list_sheets_names()
+                    .and_then(|info| info.get(&sheet_id).cloned());
+                if sheet_name.is_none() {
+                    let name = record.date.format(&self.data_sheet_name_format).to_string();
+                    self.add_sheet(sheet_id, &name);
+                    sheet_name.replace(name);
                 }
+
                 let record_date = record.date;
-                self.add_record(record, &sheet_name);
+                self.add_record(record, &sheet_name.unwrap());
                 if record_date != Local::today().naive_local() {
                     self.sort_sheet_data(sheet_id);
                 }
@@ -131,7 +146,7 @@ impl EventHandler for GoogleDocsEventHandler {
 }
 
 impl GoogleDocsEventHandler {
-    fn list_sheet_ids(&mut self) -> Option<Vec<i32>> {
+    fn list_sheets_names(&mut self) -> Option<HashMap<i32, String>> {
         let hub = self.hub();
         let call = hub
             .spreadsheets()
@@ -142,9 +157,16 @@ impl GoogleDocsEventHandler {
                 let sheets = response.1.sheets?;
                 let ids = sheets
                     .iter()
-                    .map(|s| s.properties.as_ref().unwrap().sheet_id.unwrap())
+                    .map(|s| {
+                        let props = s.properties.as_ref().unwrap();
+                        let sheet_id = props.sheet_id.unwrap();
+                        let sheet_title =
+                            props.title.clone().unwrap_or_else(|| sheet_id.to_string());
+                        (sheet_id, sheet_title)
+                    })
                     .collect();
-                Some(ids)
+                let result = HashMap::from(ids);
+                Some(result)
             }
             Err(..) => None,
         }
@@ -268,7 +290,10 @@ impl GoogleDocsEventHandler {
             &self.ss_id,
         );
         if let Err(err) = call.doit() {
-            error!("Error during adding record: {}", err);
+            error!(
+                "Error during setting filter to sheet with id={}: {}",
+                sheet_id, err
+            );
         }
     }
 }
