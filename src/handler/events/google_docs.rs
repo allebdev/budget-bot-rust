@@ -1,3 +1,4 @@
+use core::fmt;
 use std::env;
 
 use chrono::Local;
@@ -9,6 +10,7 @@ use google_sheets4::{
 };
 use hyper::Client;
 use log::{debug, error};
+use serde::export::{fmt::Display, Formatter};
 use yup_oauth2::{ServiceAccountAccess, ServiceAccountKey};
 
 use crate::handler::{
@@ -17,6 +19,20 @@ use crate::handler::{
 };
 
 const SS_SCOPE: &str = "https://www.googleapis.com/auth/spreadsheets";
+
+enum SortOrder {
+    Ascending,
+    Descending,
+}
+
+impl Display for SortOrder {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            SortOrder::Ascending => write!(f, "ASCENDING"),
+            SortOrder::Descending => write!(f, "DESCENDING"),
+        }
+    }
+}
 
 #[allow(dead_code)]
 enum Columns {
@@ -64,7 +80,7 @@ impl GoogleDocsEventHandler {
     }
 }
 
-const CATEGORIES_RANGE: &'static str = "Categories!A1:C";
+const CATEGORIES_RANGE: &str = "Categories!A1:C";
 
 impl CategoryProvider for GoogleDocsEventHandler {
     fn categories(&self) -> Vec<Category> {
@@ -135,20 +151,7 @@ impl GoogleDocsEventHandler {
         let call = hub.spreadsheets().batch_update(
             BatchUpdateSpreadsheetRequest {
                 requests: Some(vec![
-                    Request {
-                        add_sheet: Some(AddSheetRequest {
-                            properties: Some(SheetProperties {
-                                title: Some(sheet_name.to_string()),
-                                sheet_id: Some(sheet_id),
-                                grid_properties: Some(GridProperties {
-                                    frozen_row_count: Some(1),
-                                    ..Default::default()
-                                }),
-                                ..Default::default()
-                            }),
-                        }),
-                        ..Default::default()
-                    },
+                    add_sheet_request(sheet_id, sheet_name),
                     hide_the_same_date_conditional_format_request(sheet_id),
                     number_format_request(
                         sheet_id,
@@ -265,6 +268,24 @@ impl GoogleDocsEventHandler {
 }
 
 #[inline]
+fn add_sheet_request(sheet_id: i32, sheet_name: &str) -> Request {
+    Request {
+        add_sheet: Some(AddSheetRequest {
+            properties: Some(SheetProperties {
+                title: Some(sheet_name.to_string()),
+                sheet_id: Some(sheet_id),
+                grid_properties: Some(GridProperties {
+                    frozen_row_count: Some(1),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+        }),
+        ..Default::default()
+    }
+}
+
+#[inline]
 fn number_format_request(sheet_id: i32, column: i32, number_format: NumberFormat) -> Request {
     Request {
         repeat_cell: Some(RepeatCellRequest {
@@ -301,12 +322,12 @@ fn basic_filter_request(sheet_id: i32, start_column: i32, end_column: i32) -> Re
                 sort_specs: Some(vec![
                     SortSpec {
                         dimension_index: Some(0),
-                        sort_order: Some("ASCENDING".to_string()),
+                        sort_order: Some(SortOrder::Ascending.to_string()),
                         ..Default::default()
                     },
                     SortSpec {
                         dimension_index: Some(5),
-                        sort_order: Some("ASCENDING".to_string()),
+                        sort_order: Some(SortOrder::Ascending.to_string()),
                         ..Default::default()
                     },
                 ]),
