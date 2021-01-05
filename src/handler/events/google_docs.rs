@@ -5,8 +5,9 @@ use chrono::Local;
 use google_sheets4::{
     AddConditionalFormatRuleRequest, AddSheetRequest, BasicFilter, BatchUpdateSpreadsheetRequest,
     BooleanCondition, BooleanRule, CellData, CellFormat, Color, ConditionValue,
-    ConditionalFormatRule, Error, GridProperties, GridRange, NumberFormat, RepeatCellRequest,
-    Request, SetBasicFilterRequest, SheetProperties, Sheets, SortSpec, TextFormat, ValueRange,
+    ConditionalFormatRule, Error, GridCoordinate, GridProperties, GridRange, NumberFormat,
+    PivotGroup, PivotTable, PivotValue, RepeatCellRequest, Request, RowData, SetBasicFilterRequest,
+    SheetProperties, Sheets, SortSpec, TextFormat, UpdateCellsRequest, ValueRange,
 };
 use hyper::Client;
 use log::{debug, error};
@@ -43,6 +44,7 @@ enum Columns {
     User,
     MessageId,
     _Count,
+    _PivotTable,
 }
 
 pub struct GoogleDocsEventHandler {
@@ -177,6 +179,8 @@ impl GoogleDocsEventHandler {
                             type_: Some("TEXT".to_string()),
                         },
                     ),
+                    basic_filter_request(sheet_id, 0, Columns::_Count as i32),
+                    add_pivot_table_request(sheet_id),
                 ]),
                 ..Default::default()
             },
@@ -374,6 +378,54 @@ fn hide_the_same_date_conditional_format_request(sheet_id: i32) -> Request {
                 }),
                 gradient_rule: None,
             }),
+        }),
+        ..Default::default()
+    }
+}
+
+#[inline]
+fn add_pivot_table_request(sheet_id: i32) -> Request {
+    Request {
+        update_cells: Some(UpdateCellsRequest {
+            start: Some(GridCoordinate {
+                sheet_id: Some(sheet_id),
+                column_index: Some(Columns::_PivotTable as i32),
+                row_index: Some(1),
+            }),
+            fields: Some("pivotTable".to_string()),
+            rows: Some(vec![RowData {
+                values: Some(vec![CellData {
+                    pivot_table: Some(PivotTable {
+                        // todo: add filterSpecs when new version of google-sheets4 is released
+                        source: Some(GridRange {
+                            sheet_id: Some(sheet_id),
+                            start_column_index: Some(0),
+                            end_column_index: Some(Columns::_Count as i32),
+                            ..Default::default()
+                        }),
+                        values: Some(vec![PivotValue {
+                            summarize_function: Some("SUM".to_string()),
+                            source_column_offset: Some(Columns::Amount as i32),
+                            ..Default::default()
+                        }]),
+                        rows: Some(vec![PivotGroup {
+                            source_column_offset: Some(Columns::Category as i32),
+                            show_totals: Some(true),
+                            sort_order: Some(SortOrder::Ascending.to_string()),
+                            ..Default::default()
+                        }]),
+                        columns: Some(vec![PivotGroup {
+                            source_column_offset: Some(Columns::User as i32),
+                            show_totals: Some(true),
+                            sort_order: Some(SortOrder::Ascending.to_string()),
+                            ..Default::default()
+                        }]),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }]),
+            }]),
+            ..Default::default()
         }),
         ..Default::default()
     }
