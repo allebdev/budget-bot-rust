@@ -31,10 +31,13 @@ impl MainController {
         match cmd {
             Command::RecordMessage(input) => match self.parser.handle_message(input) {
                 Some(output) => {
+                    let mut result = Some(output.text);
                     for event in output.events {
-                        self.handler.handle_event(event);
+                        if let Err(err) = self.handler.handle_event(event) {
+                            result.replace(err);
+                        }
                     }
-                    Some(output.text)
+                    result
                 }
                 None => None,
             },

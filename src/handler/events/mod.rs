@@ -70,7 +70,7 @@ pub enum HandlerEvent {
 }
 
 pub trait EventHandler {
-    fn handle_event(&mut self, event: HandlerEvent);
+    fn handle_event(&mut self, event: HandlerEvent) -> Result<(), String>;
 }
 
 #[cfg(test)]

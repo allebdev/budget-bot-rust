@@ -43,14 +43,15 @@ impl CsvEventHandler {
 }
 
 impl EventHandler for CsvEventHandler {
-    fn handle_event(&mut self, event: HandlerEvent) {
+    fn handle_event(&mut self, event: HandlerEvent) -> Result<(), String> {
         match event {
-            HandlerEvent::AddRecord(record) => {
-                self.writer
-                    .serialize(record)
-                    .expect("Error during save record");
+            HandlerEvent::AddRecord(record) => self
+                .writer
+                .serialize(record)
+                .map_err(|_| "Error during save record".to_string()),
+            HandlerEvent::UpdateRecord(_) => {
+                Err("Update record is not implemented yet".to_string())
             }
-            HandlerEvent::UpdateRecord(_) => {}
         }
     }
 }

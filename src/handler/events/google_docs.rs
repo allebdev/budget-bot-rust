@@ -21,6 +21,7 @@ use crate::handler::{
 
 const SS_SCOPE: &str = "https://www.googleapis.com/auth/spreadsheets";
 
+#[allow(dead_code)]
 enum SortOrder {
     Ascending,
     Descending,
@@ -108,7 +109,7 @@ impl CategoryProvider for GoogleDocsEventHandler {
 }
 
 impl EventHandler for GoogleDocsEventHandler {
-    fn handle_event(&mut self, event: HandlerEvent) {
+    fn handle_event(&mut self, event: HandlerEvent) -> Result<(), String> {
         match event {
             HandlerEvent::AddRecord(record) => {
                 let sheet_name = record.date.format("%Y-%m").to_string();
@@ -122,8 +123,9 @@ impl EventHandler for GoogleDocsEventHandler {
                 if record_date != Local::today().naive_local() {
                     self.sort_sheet_data(sheet_id);
                 }
+                Ok(())
             }
-            HandlerEvent::UpdateRecord(_) => {}
+            HandlerEvent::UpdateRecord(_) => Err("Update records is not supported yet".to_string()),
         }
     }
 }
