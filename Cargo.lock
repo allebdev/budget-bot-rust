@@ -337,9 +337,9 @@ dependencies = [
 
 [[package]]
 name = "google-sheets4"
-version = "1.0.13+20200402"
+version = "1.0.14+20200630"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7984f3d71cca7e57a8b0d701a0cc6dd208217ab03a52a6b8e15d857867d3e6da"
+checksum = "2ab27f7698ed68e91bd3ed38df0c5ae904d49eb1d4b2eaadd150998cd6c972de"
 dependencies = [
  "hyper 0.10.16",
  "mime 0.2.6",
