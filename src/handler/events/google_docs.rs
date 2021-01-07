@@ -5,7 +5,7 @@ use std::env;
 use chrono::{Local, NaiveDate};
 use google_sheets4::{
     AddConditionalFormatRuleRequest, AddSheetRequest, BasicFilter, BatchUpdateSpreadsheetRequest,
-    BooleanCondition, BooleanRule, CellData, CellFormat, Color, ConditionValue,
+    BooleanCondition, BooleanRule, CellData, CellFormat, ClearValuesRequest, Color, ConditionValue,
     ConditionalFormatRule, Error, GridCoordinate, GridProperties, GridRange, NumberFormat,
     PivotGroup, PivotTable, PivotValue, RepeatCellRequest, Request, RowData, SetBasicFilterRequest,
     SheetProperties, Sheets, SortSpec, TextFormat, UpdateCellsRequest, ValueRange,
@@ -173,29 +173,80 @@ impl EventHandler for GoogleDocsEventHandler {
     fn handle_event(&mut self, event: HandlerEvent) -> Result<(), String> {
         match event {
             HandlerEvent::AddRecord(record) => {
-                let sheet_id = record.date.format("%Y%m").to_string().parse().unwrap();
-                let mut sheet_name = self
-                    .list_sheets_names()
-                    .and_then(|info| info.get(&sheet_id).cloned());
-                if sheet_name.is_none() {
-                    let name = record.date.format(&self.data_sheet_name_format).to_string();
-                    self.add_sheet(sheet_id, &name);
-                    sheet_name.replace(name);
-                }
-
-                let record_date = record.date;
-                self.add_record(record, &sheet_name.unwrap());
-                if record_date != Local::today().naive_local() {
-                    self.sort_sheet_data(sheet_id);
+                let sheet_id = record.date.get_sheet_id();
+                let sheet_name = self.get_or_create_sheet_by_date(&record.date);
+                self.add_record(&record, &sheet_name);
+                if record.date != Local::today().naive_local() {
+                    self.sort_sheets_data(&[sheet_id]);
                 }
                 Ok(())
             }
-            HandlerEvent::UpdateRecord(_) => Err("Update records is not supported yet".to_string()),
+            HandlerEvent::UpdateRecord(record) => {
+                let new_sheet_name = self.get_or_create_sheet_by_date(&record.date);
+                if let Some(range) = self.find_record_range(&record, &new_sheet_name) {
+                    // The same month as previous version has
+                    self.update_record(&record, &range);
+                    self.sort_sheets_data(&[record.date.get_sheet_id()]); // TODO: check previous date in table
+                    return Ok(());
+                }
+
+                let id = record.create_date.get_sheet_id();
+                let sheet_ids = last_sheet_ids(id, 12);
+                if let Some(range) =
+                    self.get_existing_sheet_names(sheet_ids)
+                        .and_then(|sheet_names| {
+                            debug!(
+                                "Search record #{} in next sheets: {:?}",
+                                record.id, sheet_names
+                            );
+                            self.find_record_range_on_sheets(sheet_names, &record)
+                        })
+                {
+                    debug!("Record #{} found in range {}", record.id, range);
+                    self.add_record(&record, &new_sheet_name);
+                    self.clear_record(&record, &range);
+                    self.sort_sheets_data(&[
+                        record.date.get_sheet_id(),
+                        record.create_date.get_sheet_id(),
+                    ]); // TODO: check previous date in table
+                    return Ok(());
+                } else {
+                    warn!("Record with id={} was not found", record.id);
+                    Err(format!("Record with id={} was not found", record.id))
+                }
+            }
         }
     }
 }
 
 impl GoogleDocsEventHandler {
+    fn get_or_create_sheet_by_date(&mut self, date: &NaiveDate) -> String {
+        let sheet_id = date.get_sheet_id();
+        let mut sheet_name = self.get_sheet_name(sheet_id);
+        if sheet_name.is_none() {
+            let name = date.format(&self.data_sheet_name_format).to_string();
+            self.add_sheet(sheet_id, &name);
+            sheet_name.replace(name);
+        }
+        sheet_name.unwrap()
+    }
+
+    fn get_sheet_name(&mut self, sheet_id: i32) -> Option<String> {
+        self.list_sheets_names()
+            .and_then(|info| info.get(&sheet_id).cloned())
+    }
+
+    fn get_existing_sheet_names(&mut self, sheet_ids: Vec<i32>) -> Option<Vec<String>> {
+        let sheet_names = self.list_sheets_names()?;
+        Some(
+            sheet_names
+                .iter()
+                .filter(|(id, _)| sheet_ids.contains(id))
+                .map(|(_, name)| name.to_owned())
+                .collect(),
+        )
+    }
+
     fn list_sheets_names(&mut self) -> Option<HashMap<i32, String>> {
         let hub = self.hub();
         let call = hub
@@ -300,7 +351,7 @@ impl GoogleDocsEventHandler {
         }
     }
 
-    fn add_record(&mut self, record: BudgetRecord, sheet_name: &str) {
+    fn add_record(&mut self, record: &BudgetRecord, sheet_name: &str) {
         let data = record.to_value_range(None, None);
         let range = gss_range(sheet_name, "A1");
         let hub = self.hub();
@@ -314,15 +365,119 @@ impl GoogleDocsEventHandler {
         }
     }
 
-    fn sort_sheet_data(&mut self, sheet_id: i32) {
+    fn update_record(&mut self, record: &BudgetRecord, range: &str) {
+        let data = record.to_value_range(Some(range), None);
+        let hub = self.hub();
+        let call = hub
+            .spreadsheets()
+            .values_update(data, &self.ss_id, range)
+            .value_input_option("USER_ENTERED")
+            .add_scope(SS_SCOPE);
+        if let Err(err) = call.doit() {
+            error!(
+                "Error during updating record with id={}: {}",
+                record.id, err
+            );
+        }
+    }
+
+    fn clear_record(&mut self, record: &BudgetRecord, range: &str) {
+        let hub = self.hub();
+        let call = hub
+            .spreadsheets()
+            .values_clear(ClearValuesRequest::default(), &self.ss_id, range)
+            .add_scope(SS_SCOPE);
+        if let Err(err) = call.doit() {
+            error!(
+                "Error during clearing record with id={}: {}",
+                record.id, err
+            );
+        }
+    }
+
+    fn find_record_range(&mut self, record: &BudgetRecord, sheet_name: &str) -> Option<String> {
+        let range = gss_range(
+            sheet_name,
+            &format!("{col}:{col}", col = Columns::MessageId.name()),
+        );
+        let hub = self.hub();
+        let call = hub
+            .spreadsheets()
+            .values_get(&self.ss_id, &range)
+            .major_dimension("COLUMNS")
+            .value_render_option("FORMATTED_VALUE")
+            .add_scope(SS_SCOPE);
+        let result = call.doit();
+        match result {
+            Ok((_, value_range)) => {
+                let id = record.id.to_string();
+                let row_index = value_range.values.and_then(|rows| {
+                    rows.first()
+                        .and_then(|cols| cols.iter().position(|v| *v == id))
+                });
+                row_index.map(|idx| gss_range(sheet_name, &format!("A{row}:{row}", row = idx + 1)))
+            }
+            Err(_) => {
+                error!("Record #{} is not found", record.id);
+                None
+            }
+        }
+    }
+
+    fn find_record_range_on_sheets(
+        &mut self,
+        sheet_names: Vec<String>,
+        record: &BudgetRecord,
+    ) -> Option<String> {
+        let hub = self.hub();
+        let mut call = hub
+            .spreadsheets()
+            .values_batch_get(&self.ss_id)
+            .major_dimension("COLUMNS")
+            .value_render_option("FORMATTED_VALUE")
+            .add_scope(SS_SCOPE);
+        for sheet_name in sheet_names {
+            call = call.add_ranges(&gss_range(
+                &sheet_name,
+                &format!("{col}:{col}", col = Columns::MessageId.name()),
+            ));
+        }
+        match call.doit() {
+            Ok((_, data)) => {
+                let id = record.id.to_string();
+                data.value_ranges.and_then(|ranges| {
+                    let result = ranges.iter().find_map(|range| {
+                        range
+                            .range
+                            .as_ref()
+                            .zip(range.values.as_ref().and_then(|rows| {
+                                rows.first()
+                                    .and_then(|cols| cols.iter().position(|v| *v == id))
+                            }))
+                    });
+                    result.and_then(|(range, index)| {
+                        range.split("!").next().map(|sheet_name| {
+                            gss_range(sheet_name, &format!("A{row}:{row}", row = index + 1))
+                        })
+                    })
+                })
+            }
+            Err(_) => {
+                error!("Record #{} is not found", record.id);
+                None
+            }
+        }
+    }
+
+    fn sort_sheets_data(&mut self, sheet_ids: &[i32]) {
+        let filter_requests: Vec<Request> = sheet_ids
+            .iter()
+            .map(|&sheet_id| basic_filter_request(sheet_id, 0, Columns::_Count as i32))
+            .collect();
         let hub = self.hub();
         let call = hub.spreadsheets().batch_update(
             BatchUpdateSpreadsheetRequest {
-                requests: Some(vec![basic_filter_request(
-                    sheet_id,
-                    0,
-                    Columns::_Count as i32,
-                )]),
+                requests: Some(filter_requests),
                 ..Default::default()
             },
             &self.ss_id,
@@ -503,5 +658,27 @@ fn add_pivot_table_request(sheet_id: i32) -> Request {
             ..Default::default()
         }),
         ..Default::default()
+    }
+}
+
+fn last_sheet_ids(id: i32, count: usize) -> Vec<i32> {
+    (0..count - 1).fold(vec![id], |mut v, _| {
+        let id = v.last().unwrap();
+        let prev = if (id - 1) % 100 == 0 { id - 89 } else { id - 1 };
+        v.push(prev);
+        v
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::handler::events::google_docs::last_sheet_ids;
+
+    #[test]
+    fn last_4_sheet_ids() {
+        assert_eq!(
+            last_sheet_ids(202102, 4),
+            vec![202102, 202101, 202012, 202011]
+        )
     }
 }
