@@ -23,6 +23,7 @@ impl LambdaResponse {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    env_logger::init();
     lambda!(lambda_handler);
     Ok(())
 }
