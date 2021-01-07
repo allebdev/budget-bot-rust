@@ -1,4 +1,4 @@
-use chrono::{Duration, Local};
+use chrono::{Duration, Local, TimeZone};
 use log::debug;
 use std::ops::Sub;
 
@@ -20,6 +20,7 @@ pub struct Input {
     pub user: String,
     pub text: String,
     pub is_new: bool,
+    pub unixtime: i64,
 }
 
 #[derive(Debug)]
@@ -41,10 +42,12 @@ impl RawMessageParser {
 
     pub fn handle_message(&mut self, input: Input) -> Option<Output> {
         debug!("{:?}", &input);
+        let date = Local.timestamp(input.unixtime, 0u32).date();
         let tokens = tokenize(&input.text);
         let record = BudgetRecord {
             id: input.id,
-            date: Local::today()
+            create_date: date.naive_local(),
+            date: date
                 .naive_local()
                 .sub(DefaultDateShiftParser::parse_date_shift(&tokens).unwrap_or(Duration::zero())),
             category: self.categorizer.classify(&tokens)?.name.to_owned(),

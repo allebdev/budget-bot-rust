@@ -111,6 +111,7 @@ impl TelegramCommandReader {
 
         let cmd = Command::RecordMessage(Input {
             id: ctx.message_id().0 as i64,
+            unixtime: ctx.date(),
             user: username.to_owned(),
             text: value.clone(),
             is_new: !edited,

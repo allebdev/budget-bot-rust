@@ -61,6 +61,7 @@ pub struct BudgetRecord {
     pub amount: Amount,
     pub desc: String,
     pub user: String,
+    pub create_date: NaiveDate,
 }
 
 #[derive(Debug)]
