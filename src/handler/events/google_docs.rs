@@ -2,7 +2,7 @@ use core::fmt;
 use std::collections::HashMap;
 use std::env;
 
-use chrono::Local;
+use chrono::{Local, NaiveDate};
 use google_sheets4::{
     AddConditionalFormatRuleRequest, AddSheetRequest, BasicFilter, BatchUpdateSpreadsheetRequest,
     BooleanCondition, BooleanRule, CellData, CellFormat, Color, ConditionValue,
@@ -11,7 +11,8 @@ use google_sheets4::{
     SheetProperties, Sheets, SortSpec, TextFormat, UpdateCellsRequest, ValueRange,
 };
 use hyper::Client;
-use log::{debug, error};
+use log::{debug, error, warn};
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde::export::{fmt::Display, Formatter};
 use yup_oauth2::{ServiceAccountAccess, ServiceAccountKey};
 
@@ -47,6 +48,55 @@ enum Columns {
     MessageId,
     _Count,
     _PivotTable,
+}
+
+impl Columns {
+    fn name(self) -> String {
+        match self as i32 {
+            0 => String::from("A"),
+            1 => String::from("B"),
+            2 => String::from("C"),
+            3 => String::from("D"),
+            4 => String::from("E"),
+            5 => String::from("F"),
+            6 => String::from("G"),
+            7 => String::from("H"),
+            8 => String::from("I"),
+            9 => String::from("J"),
+            _ => unreachable!(),
+        }
+    }
+}
+
+trait NaiveDateExt {
+    fn get_sheet_id(&self) -> i32;
+}
+
+impl NaiveDateExt for NaiveDate {
+    fn get_sheet_id(&self) -> i32 {
+        self.format("%Y%m").to_string().parse().unwrap()
+    }
+}
+
+trait BudgetRecordExt {
+    fn to_value_range(&self, range: Option<&str>, major_dimension: Option<&str>) -> ValueRange;
+}
+
+impl BudgetRecordExt for BudgetRecord {
+    fn to_value_range(&self, range: Option<&str>, major_dimension: Option<&str>) -> ValueRange {
+        ValueRange {
+            range: range.map(|s| s.to_owned()),
+            values: Some(vec![vec![
+                self.date.to_string(),
+                self.amount.to_string().replace('.', ","),
+                self.category.to_owned(),
+                self.desc.to_owned(),
+                self.user.to_owned(),
+                self.id.to_string(),
+            ]]),
+            major_dimension: major_dimension.map(|s| s.to_owned()),
+        }
+    }
 }
 
 pub struct GoogleDocsEventHandler {
@@ -98,7 +148,7 @@ impl GoogleDocsEventHandler {
 impl CategoryProvider for GoogleDocsEventHandler {
     fn categories(&self) -> Vec<Category> {
         let hub = self.hub();
-        let range = format!("{}!A1:C", self.categories_sheet_name);
+        let range = gss_range(&self.categories_sheet_name, "A1:C");
         let call = hub.spreadsheets().values_get(&self.ss_id, &range);
         if let Some(data) = call.doit().expect("Can not fetch categories").1.values {
             data.iter()
@@ -239,7 +289,7 @@ impl GoogleDocsEventHandler {
             ]]),
             ..Default::default()
         };
-        let range = format!("{}!A1", sheet_name);
+        let range = gss_range(sheet_name, "A1");
         let hub = self.hub();
         let call = hub
             .spreadsheets()
@@ -251,20 +301,8 @@ impl GoogleDocsEventHandler {
     }
 
     fn add_record(&mut self, record: BudgetRecord, sheet_name: &str) {
-        let data = ValueRange {
-            range: None, //Some("A1".to_string()),
-            values: Some(vec![vec![
-                record.date.to_string(),
-                record.amount.to_string().replace('.', ","),
-                record.category,
-                record.desc,
-                record.user,
-                record.id.to_string(),
-            ]]),
-            major_dimension: None, //Some("ROWS".to_string()),
-        };
-
-        let range = format!("{}!A1", sheet_name);
+        let data = record.to_value_range(None, None);
+        let range = gss_range(sheet_name, "A1");
         let hub = self.hub();
         let call = hub
             .spreadsheets()
@@ -272,7 +310,7 @@ impl GoogleDocsEventHandler {
             .value_input_option("USER_ENTERED")
             .add_scope(SS_SCOPE);
         if let Err(err) = call.doit() {
-            error!("Error during adding record: {}", err);
+            error!("Error during adding record with id={}: {}", record.id, err);
         }
     }
 
@@ -291,11 +329,20 @@ impl GoogleDocsEventHandler {
         );
         if let Err(err) = call.doit() {
             error!(
-                "Error during setting filter to sheet with id={}: {}",
-                sheet_id, err
+                "Error during setting filter for sheets with ids {:?}: {}",
+                sheet_ids, err
             );
         }
     }
+}
+
+#[inline]
+fn gss_range(sheet_name: &str, a1range: &str) -> String {
+    format!(
+        "{}!{}",
+        utf8_percent_encode(sheet_name, NON_ALPHANUMERIC),
+        a1range
+    )
 }
 
 #[inline]
@@ -369,6 +416,7 @@ fn basic_filter_request(sheet_id: i32, start_column: i32, end_column: i32) -> Re
     }
 }
 
+#[inline]
 fn hide_the_same_date_conditional_format_request(sheet_id: i32) -> Request {
     Request {
         add_conditional_format_rule: Some(AddConditionalFormatRuleRequest {
@@ -417,7 +465,7 @@ fn add_pivot_table_request(sheet_id: i32) -> Request {
             start: Some(GridCoordinate {
                 sheet_id: Some(sheet_id),
                 column_index: Some(Columns::_PivotTable as i32),
-                row_index: Some(1),
+                row_index: Some(0),
             }),
             fields: Some("pivotTable".to_string()),
             rows: Some(vec![RowData {

@@ -13,7 +13,7 @@ default = ["cli", "csv-storage", "parser-en"]
 cli = []
 telegram = ["tbot"]
 csv-storage = ["csv"]
-gss-storage = ["google-sheets4", "yup-oauth2", "hyper", "hyper-rustls"]
+gss-storage = ["google-sheets4", "yup-oauth2", "hyper", "hyper-rustls", "percent-encoding"]
 parser-ru = []
 parser-en = []
 aws-lambda = ["lambda_runtime"]
@@ -37,3 +37,4 @@ yup-oauth2 = {version="^1.0", optional=true}
 hyper = {version="^0.10", optional=true}
 hyper-rustls = { version = "^0.6", optional = true }
 lambda_runtime = { version = "^0.2", optional = true }
+percent-encoding = { version = "^2.1", optional = true }
