@@ -1,6 +1,7 @@
 use core::fmt;
 use std::collections::HashMap;
 use std::env;
+use std::str::FromStr;
 
 use chrono::{Local, NaiveDate};
 use google_sheets4::{
@@ -39,7 +40,7 @@ impl Display for SortOrder {
 }
 
 #[allow(dead_code)]
-enum Columns {
+enum Column {
     Date,
     Amount,
     Category,
@@ -50,7 +51,7 @@ enum Columns {
     _PivotTable,
 }
 
-impl Columns {
+impl Column {
     fn name(self) -> String {
         match self as i32 {
             0 => String::from("A"),
@@ -79,13 +80,18 @@ impl NaiveDateExt for NaiveDate {
 }
 
 trait BudgetRecordExt {
-    fn to_value_range(&self, range: Option<&str>, major_dimension: Option<&str>) -> ValueRange;
+    fn to_value_range(&self, range: Option<&GssRange>, major_dimension: Option<&str>)
+        -> ValueRange;
 }
 
 impl BudgetRecordExt for BudgetRecord {
-    fn to_value_range(&self, range: Option<&str>, major_dimension: Option<&str>) -> ValueRange {
+    fn to_value_range(
+        &self,
+        range: Option<&GssRange>,
+        major_dimension: Option<&str>,
+    ) -> ValueRange {
         ValueRange {
-            range: range.map(|s| s.to_owned()),
+            range: range.map(|r| r.to_string()),
             values: Some(vec![vec![
                 self.date.to_string(),
                 self.amount.to_string().replace('.', ","),
@@ -96,6 +102,38 @@ impl BudgetRecordExt for BudgetRecord {
             ]]),
             major_dimension: major_dimension.map(|s| s.to_owned()),
         }
+    }
+}
+
+impl From<(&str, &str)> for GssRange {
+    fn from((sheet_name, a1range): (&str, &str)) -> Self {
+        GssRange(format!("{}!{}", sheet_name, a1range))
+    }
+}
+
+impl From<(&str, Column)> for GssRange {
+    fn from((sheet_name, column): (&str, Column)) -> Self {
+        GssRange::from_sheet_and_col(sheet_name, column)
+    }
+}
+
+impl From<(&str, i32)> for GssRange {
+    fn from((sheet_name, row): (&str, i32)) -> Self {
+        GssRange::from_sheet_and_row(sheet_name, row)
+    }
+}
+
+impl FromStr for GssRange {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(GssRange(s.to_owned()))
+    }
+}
+
+impl AsRef<str> for GssRange {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
     }
 }
 
@@ -148,8 +186,10 @@ impl GoogleDocsEventHandler {
 impl CategoryProvider for GoogleDocsEventHandler {
     fn categories(&self) -> Vec<Category> {
         let hub = self.hub();
-        let range = gss_range(&self.categories_sheet_name, "A1:C");
-        let call = hub.spreadsheets().values_get(&self.ss_id, &range);
+        let range: GssRange = (self.categories_sheet_name.as_ref(), "A1:C").into();
+        let call = hub
+            .spreadsheets()
+            .values_get(&self.ss_id, range.url_encoded().as_ref());
         if let Some(data) = call.doit().expect("Can not fetch categories").1.values {
             data.iter()
                 .map(|c| {
@@ -185,9 +225,15 @@ impl EventHandler for GoogleDocsEventHandler {
                 let new_sheet_name = self.get_or_create_sheet_by_date(&record.date);
                 if let Some(range) = self.find_record_range(&record, &new_sheet_name) {
                     // The same month as previous version has
+                    debug!("Record #{} found in range {}", record.id, range);
                     self.update_record(&record, &range);
                     self.sort_sheets_data(&[record.date.get_sheet_id()]); // TODO: check previous date in table
                     return Ok(());
+                } else {
+                    debug!(
+                        "Record #{} was not found on sheet {}",
+                        record.id, new_sheet_name
+                    );
                 }
 
                 let id = record.create_date.get_sheet_id();
@@ -202,6 +248,7 @@ impl EventHandler for GoogleDocsEventHandler {
                             self.find_record_range_on_sheets(sheet_names, &record)
                         })
                 {
+                    // Different month from previous version
                     debug!("Record #{} found in range {}", record.id, range);
                     self.add_record(&record, &new_sheet_name);
                     self.clear_record(&record, &range);
@@ -211,11 +258,34 @@ impl EventHandler for GoogleDocsEventHandler {
                     ]); // TODO: check previous date in table
                     return Ok(());
                 } else {
-                    warn!("Record with id={} was not found", record.id);
-                    Err(format!("Record with id={} was not found", record.id))
+                    warn!("Record #{} is not found", record.id);
+                    Err(format!("Record #{} is not found", record.id))
                 }
             }
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct GssRange(String);
+
+impl GssRange {
+    fn url_encoded(&self) -> String {
+        utf8_percent_encode(&self.0, NON_ALPHANUMERIC).to_string()
+    }
+
+    fn from_sheet_and_col(sheet_name: &str, column: Column) -> GssRange {
+        GssRange(format!("{}!{col}:{col}", sheet_name, col = column.name()))
+    }
+
+    fn from_sheet_and_row(sheet_name: &str, row: i32) -> GssRange {
+        GssRange(format!("{}!{row}:{row}", sheet_name, row = row))
+    }
+}
+
+impl Display for GssRange {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -282,7 +352,7 @@ impl GoogleDocsEventHandler {
                     hide_the_same_date_conditional_format_request(sheet_id),
                     number_format_request(
                         sheet_id,
-                        Columns::Date as i32,
+                        Column::Date as i32,
                         NumberFormat {
                             pattern: Some("dd, ddd".to_string()),
                             type_: Some("DATE".to_string()),
@@ -290,7 +360,7 @@ impl GoogleDocsEventHandler {
                     ),
                     number_format_request(
                         sheet_id,
-                        Columns::Amount as i32,
+                        Column::Amount as i32,
                         NumberFormat {
                             pattern: Some("#,##0.00".to_string()),
                             type_: Some("NUMBER".to_string()),
@@ -298,13 +368,13 @@ impl GoogleDocsEventHandler {
                     ),
                     number_format_request(
                         sheet_id,
-                        Columns::MessageId as i32,
+                        Column::MessageId as i32,
                         NumberFormat {
                             pattern: None,
                             type_: Some("TEXT".to_string()),
                         },
                     ),
-                    basic_filter_request(sheet_id, 0, Columns::_Count as i32),
+                    basic_filter_request(sheet_id, 0, Column::_Count as i32),
                     add_pivot_table_request(sheet_id),
                 ]),
                 ..Default::default()
@@ -340,11 +410,11 @@ impl GoogleDocsEventHandler {
             ]]),
             ..Default::default()
         };
-        let range = gss_range(sheet_name, "A1");
+        let range: GssRange = (sheet_name, "A1").into();
         let hub = self.hub();
         let call = hub
             .spreadsheets()
-            .values_update(data, &self.ss_id, &range)
+            .values_update(data, &self.ss_id, &range.url_encoded())
             .value_input_option("RAW");
         if let Err(err) = call.doit() {
             error!("Error during update header: {:?}", err);
@@ -353,11 +423,11 @@ impl GoogleDocsEventHandler {
 
     fn add_record(&mut self, record: &BudgetRecord, sheet_name: &str) {
         let data = record.to_value_range(None, None);
-        let range = gss_range(sheet_name, "A1");
+        let range: GssRange = (sheet_name, "A1").into();
         let hub = self.hub();
         let call = hub
             .spreadsheets()
-            .values_append(data, &self.ss_id, &range)
+            .values_append(data, &self.ss_id, range.url_encoded().as_ref())
             .value_input_option("USER_ENTERED")
             .add_scope(SS_SCOPE);
         if let Err(err) = call.doit() {
@@ -365,12 +435,12 @@ impl GoogleDocsEventHandler {
         }
     }
 
-    fn update_record(&mut self, record: &BudgetRecord, range: &str) {
+    fn update_record(&mut self, record: &BudgetRecord, range: &GssRange) {
         let data = record.to_value_range(Some(range), None);
         let hub = self.hub();
         let call = hub
             .spreadsheets()
-            .values_update(data, &self.ss_id, range)
+            .values_update(data, &self.ss_id, range.url_encoded().as_ref())
             .value_input_option("USER_ENTERED")
             .add_scope(SS_SCOPE);
         if let Err(err) = call.doit() {
@@ -381,11 +451,15 @@ impl GoogleDocsEventHandler {
         }
     }
 
-    fn clear_record(&mut self, record: &BudgetRecord, range: &str) {
+    fn clear_record(&mut self, record: &BudgetRecord, range: &GssRange) {
         let hub = self.hub();
         let call = hub
             .spreadsheets()
-            .values_clear(ClearValuesRequest::default(), &self.ss_id, range)
+            .values_clear(
+                ClearValuesRequest::default(),
+                &self.ss_id,
+                range.url_encoded().as_ref(),
+            )
             .add_scope(SS_SCOPE);
         if let Err(err) = call.doit() {
             error!(
@@ -395,15 +469,12 @@ impl GoogleDocsEventHandler {
         }
     }
 
-    fn find_record_range(&mut self, record: &BudgetRecord, sheet_name: &str) -> Option<String> {
-        let range = gss_range(
-            sheet_name,
-            &format!("{col}:{col}", col = Columns::MessageId.name()),
-        );
+    fn find_record_range(&mut self, record: &BudgetRecord, sheet_name: &str) -> Option<GssRange> {
+        let range = GssRange::from_sheet_and_col(sheet_name, Column::MessageId);
         let hub = self.hub();
         let call = hub
             .spreadsheets()
-            .values_get(&self.ss_id, &range)
+            .values_get(&self.ss_id, range.as_ref())
             .major_dimension("COLUMNS")
             .value_render_option("FORMATTED_VALUE")
             .add_scope(SS_SCOPE);
@@ -415,12 +486,9 @@ impl GoogleDocsEventHandler {
                     rows.first()
                         .and_then(|cols| cols.iter().position(|v| *v == id))
                 });
-                row_index.map(|idx| gss_range(sheet_name, &format!("A{row}:{row}", row = idx + 1)))
+                row_index.map(|idx| (sheet_name, idx as i32 + 1).into())
             }
-            Err(_) => {
-                error!("Record #{} is not found", record.id);
-                None
-            }
+            Err(_) => None,
         }
     }
 
@@ -428,7 +496,7 @@ impl GoogleDocsEventHandler {
         &mut self,
         sheet_names: Vec<String>,
         record: &BudgetRecord,
-    ) -> Option<String> {
+    ) -> Option<GssRange> {
         let hub = self.hub();
         let mut call = hub
             .spreadsheets()
@@ -437,10 +505,8 @@ impl GoogleDocsEventHandler {
             .value_render_option("FORMATTED_VALUE")
             .add_scope(SS_SCOPE);
         for sheet_name in sheet_names {
-            call = call.add_ranges(&gss_range(
-                &sheet_name,
-                &format!("{col}:{col}", col = Columns::MessageId.name()),
-            ));
+            let range: GssRange = (sheet_name.as_str(), Column::MessageId).into();
+            call = call.add_ranges(range.as_ref());
         }
         match call.doit() {
             Ok((_, data)) => {
@@ -456,9 +522,10 @@ impl GoogleDocsEventHandler {
                             }))
                     });
                     result.and_then(|(range, index)| {
-                        range.split("!").next().map(|sheet_name| {
-                            gss_range(sheet_name, &format!("A{row}:{row}", row = index + 1))
-                        })
+                        range
+                            .split("!")
+                            .next()
+                            .map(|sheet_name| (sheet_name, index as i32 + 1).into())
                     })
                 })
             }
@@ -472,7 +539,7 @@ impl GoogleDocsEventHandler {
     fn sort_sheets_data(&mut self, sheet_ids: &[i32]) {
         let filter_requests: Vec<Request> = sheet_ids
             .iter()
-            .map(|&sheet_id| basic_filter_request(sheet_id, 0, Columns::_Count as i32))
+            .map(|&sheet_id| basic_filter_request(sheet_id, 0, Column::_Count as i32))
             .collect();
         let hub = self.hub();
         let call = hub.spreadsheets().batch_update(
@@ -489,15 +556,6 @@ impl GoogleDocsEventHandler {
             );
         }
     }
-}
-
-#[inline]
-fn gss_range(sheet_name: &str, a1range: &str) -> String {
-    format!(
-        "{}!{}",
-        utf8_percent_encode(sheet_name, NON_ALPHANUMERIC),
-        a1range
-    )
 }
 
 #[inline]
@@ -578,9 +636,9 @@ fn hide_the_same_date_conditional_format_request(sheet_id: i32) -> Request {
             index: Some(0),
             rule: Some(ConditionalFormatRule {
                 ranges: Some(vec![GridRange {
-                    end_column_index: Some(Columns::Date as i32 + 1),
+                    end_column_index: Some(Column::Date as i32 + 1),
                     sheet_id: Some(sheet_id),
-                    start_column_index: Some(Columns::Date as i32),
+                    start_column_index: Some(Column::Date as i32),
                     ..Default::default()
                 }]),
                 boolean_rule: Some(BooleanRule {
@@ -619,7 +677,7 @@ fn add_pivot_table_request(sheet_id: i32) -> Request {
         update_cells: Some(UpdateCellsRequest {
             start: Some(GridCoordinate {
                 sheet_id: Some(sheet_id),
-                column_index: Some(Columns::_PivotTable as i32),
+                column_index: Some(Column::_PivotTable as i32),
                 row_index: Some(0),
             }),
             fields: Some("pivotTable".to_string()),
@@ -630,22 +688,22 @@ fn add_pivot_table_request(sheet_id: i32) -> Request {
                         source: Some(GridRange {
                             sheet_id: Some(sheet_id),
                             start_column_index: Some(0),
-                            end_column_index: Some(Columns::_Count as i32),
+                            end_column_index: Some(Column::_Count as i32),
                             ..Default::default()
                         }),
                         values: Some(vec![PivotValue {
                             summarize_function: Some("SUM".to_string()),
-                            source_column_offset: Some(Columns::Amount as i32),
+                            source_column_offset: Some(Column::Amount as i32),
                             ..Default::default()
                         }]),
                         rows: Some(vec![PivotGroup {
-                            source_column_offset: Some(Columns::Category as i32),
+                            source_column_offset: Some(Column::Category as i32),
                             show_totals: Some(true),
                             sort_order: Some(SortOrder::Ascending.to_string()),
                             ..Default::default()
                         }]),
                         columns: Some(vec![PivotGroup {
-                            source_column_offset: Some(Columns::User as i32),
+                            source_column_offset: Some(Column::User as i32),
                             show_totals: Some(true),
                             sort_order: Some(SortOrder::Ascending.to_string()),
                             ..Default::default()
